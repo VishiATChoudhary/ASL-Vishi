@@ -272,8 +272,7 @@ def _fragmented_case(
             seed=assignment_seed,
         )
         supported_by_fragment = {
-            fragment: fragmented.node_sources[fragment] & supporting
-            for fragment in groups[bridge]
+            fragment: fragmented.node_sources[fragment] & supporting for fragment in groups[bridge]
         }
         occupied = [fragment for fragment, sources in supported_by_fragment.items() if sources]
         if len(occupied) < 2:
@@ -429,7 +428,7 @@ def main() -> None:
 
     ARTIFACTS.mkdir(parents=True, exist_ok=True)
     report_path = ARTIFACTS / "fragmentation_poc.json"
-    plot_path = ARTIFACTS / "fragmentation_dose_response.png"
+    plot_path = ARTIFACTS / "identity_bridge_results.png"
     report_path.write_text(json.dumps(report, indent=2, allow_nan=False), encoding="utf-8")
     write_plot(results, plot_path)
     print(f"Wrote {report_path.relative_to(ROOT)} and {plot_path.relative_to(ROOT)}")

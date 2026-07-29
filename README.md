@@ -52,7 +52,7 @@ prevalence of the fault in production graphs.
 Full machine-readable results are in
 [`artifacts/fragmentation_poc.json`](artifacts/fragmentation_poc.json), with a
 summary plot in
-[`artifacts/fragmentation_dose_response.png`](artifacts/fragmentation_dose_response.png).
+[`artifacts/identity_bridge_results.png`](artifacts/identity_bridge_results.png).
 
 ## Reproduce
 

@@ -4,7 +4,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 artifacts/*
-!artifacts/fragmentation_dose_response.png
+!artifacts/identity_bridge_results.png
 !artifacts/fragmentation_poc.json
 data/cache/*
 !data/cache/.gitkeep

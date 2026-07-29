@@ -134,9 +134,7 @@ def fragment_by_source(
     """Split each selected entity consistently by source document."""
     if shards < 2:
         raise ValueError("shards must be at least 2")
-    if identity_weight is not None and (
-        not math.isfinite(identity_weight) or identity_weight <= 0
-    ):
+    if identity_weight is not None and (not math.isfinite(identity_weight) or identity_weight <= 0):
         raise ValueError("identity_weight must be finite and positive")
 
     selected = {
