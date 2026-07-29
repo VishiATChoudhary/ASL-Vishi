@@ -124,3 +124,42 @@ or negative result is also a valid finding.
 
 Use separate, predeclared runs when comparing prompt conditions. Do not widen
 the beta grid after looking at held-out test results.
+
+## Observed neutral-prompt result, 2026-07-29
+
+This run used Claude Code 2.1.220 with `claude-opus-5` and Codex CLI 0.146.0
+with `gpt-5.6-sol`, both at low effort. All 40 LoCoMo chunks and all 1,048
+unique paragraphs in the fixed 60-question MuSiQue sample were extracted by
+each provider without empty or invalid results.
+
+LoCoMo developed a heavy tail. Caroline and Melanie were the two dominant
+nodes and appeared among the top five PPR nodes for all eight in-domain, all
+eight off-domain, and all eight random-seed trials under vanilla PPR. They are
+real conversation participants, however, not generic junk entities. The metric
+therefore detects structural concentration but does not distinguish harmful
+hubs from legitimate richly described people.
+
+Entropy damping at beta 1 reduced mean PPR mass in the top 1 percent leakiness
+nodes from 0.368 to 0.176 for Claude and from 0.287 to 0.134 for Codex. In the
+live work query, Claude changed one of three retrieved sources without an
+obvious quality improvement; Codex returned the same three sources.
+
+The primary held-out MuSiQue result was:
+
+| Extractor | Vanilla Recall@5 | Entropy Recall@5 | Paired delta, 95% CI | W/L/T |
+|---|---:|---:|---:|---:|
+| Claude | 0.431 | 0.436 | +0.006 [-0.033, +0.050] | 1/1/28 |
+| Codex | 0.397 | 0.419 | +0.022 [+0.000, +0.056] | 2/0/28 |
+
+Beta 1 was selected independently for entropy on each dev graph. Both paired
+intervals include zero. Degree-only damping selected beta 2 and was at least as
+good as entropy: Recall@5 was 0.447 for Claude and 0.419 for Codex. The highest
+leakiness MuSiQue nodes were mostly legitimate entities such as United States,
+India, named films, cities, and football clubs.
+
+The honest conclusion is that the run demonstrates query-independent PPR mass
+concentration and shows that damping reduces it. It does not establish that the
+entropy metric specifically identifies bad supernodes, nor that entropy
+damping improves held-out retrieval. The retrieval result is inconclusive and
+the degree ablation gives no evidence that relation entropy is the useful part
+of the kernel.

@@ -79,6 +79,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--provider", choices=sorted(DEFAULT_MODELS), default="claude")
     parser.add_argument("--model", help="exact model ID; defaults to the provider's pinned model")
     parser.add_argument("--effort", choices=sorted(EFFORTS), default="low")
+    parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--prompt", choices=sorted(PROMPTS), default="neutral")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
@@ -89,10 +90,16 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def report_progress(completed: int, total: int) -> None:
+    step = max(1, total // 20)
+    if completed == 0 or completed == total or completed % step == 0:
+        print(f"Extracted or loaded {completed}/{total}", flush=True)
+
+
 def main() -> None:
     args = parse_args()
-    if args.n_questions < 2:
-        raise ValueError("--n-questions must be at least 2 for a dev/test split")
+    if args.n_questions < 2 or args.workers < 1:
+        raise ValueError("--n-questions must be at least 2 and --workers must be positive")
 
     dataset = load_dataset("dgslibisey/MuSiQue", split="validation")
     if args.n_questions > len(dataset):
@@ -161,6 +168,8 @@ def main() -> None:
         items,
         cache_path=CACHE / f"musique_triples_{args.provider}_{args.prompt}.jsonl",
         system=PROMPTS[args.prompt],
+        workers=args.workers,
+        progress=report_progress,
     )
     kg = KG()
     for source_id, triples in triples_by_source.items():

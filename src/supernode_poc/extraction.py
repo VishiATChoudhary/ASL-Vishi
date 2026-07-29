@@ -6,6 +6,8 @@ import hashlib
 import json
 import subprocess
 import tempfile
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -216,8 +218,12 @@ def extract_corpus(
     items: list[tuple[str, str]],
     cache_path: str | Path,
     system: str = SYSTEM_NEUTRAL,
+    workers: int = 1,
+    progress: Callable[[int, int], None] | None = None,
 ) -> dict[str, list[Triple]]:
-    """Extract items once, with all result-changing inputs in the cache key."""
+    """Extract items with checkpointed caching and bounded CLI concurrency."""
+    if workers < 1:
+        raise ValueError("workers must be positive")
     path = Path(cache_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     provenance = extractor.provenance(system)
@@ -236,24 +242,69 @@ def extract_corpus(
                     message = f"Invalid extraction cache row {line_number} in {path}"
                     raise ValueError(message) from error
 
-    results: dict[str, list[Triple]] = {}
+    requests: list[tuple[str, dict[str, Any], tuple[str, ...]]] = []
+    source_keys: list[tuple[str, tuple[str, ...]]] = []
+    scheduled: set[tuple[str, ...]] = set()
+    for source_id, text in items:
+        row = {
+            "source_id": source_id,
+            "text_sha256": _sha256(text),
+            **provenance,
+        }
+        key = _cache_key(row)
+        source_keys.append((source_id, key))
+        if key not in cached and key not in scheduled:
+            requests.append((text, row, key))
+            scheduled.add(key)
+
+    completed = len(source_keys) - len(requests)
+    if progress:
+        progress(completed, len(source_keys))
     with path.open("a", encoding="utf-8") as cache_file:
-        for source_id, text in items:
-            row = {
-                "source_id": source_id,
-                "text_sha256": _sha256(text),
-                **provenance,
-            }
-            key = _cache_key(row)
-            triples = cached.get(key)
-            if triples is None:
-                triples = extract_triples(extractor, text, system=system)
-                row["triples"] = [triple.model_dump() for triple in triples]
-                cache_file.write(json.dumps(row, ensure_ascii=False) + "\n")
-                cache_file.flush()
-                cached[key] = triples
-            results[source_id] = triples
-    return results
+        if workers == 1:
+            extracted = (
+                (text, row, key, extract_triples(extractor, text, system=system))
+                for text, row, key in requests
+            )
+            for _, row, key, triples in extracted:
+                _checkpoint(cache_file, row, key, triples, cached)
+                completed += 1
+                if progress:
+                    progress(completed, len(source_keys))
+        else:
+            failures: list[Exception] = []
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = {
+                    executor.submit(extract_triples, extractor, text, system): (row, key)
+                    for text, row, key in requests
+                }
+                for future in as_completed(futures):
+                    row, key = futures[future]
+                    try:
+                        triples = future.result()
+                    except Exception as error:
+                        failures.append(error)
+                        continue
+                    _checkpoint(cache_file, row, key, triples, cached)
+                    completed += 1
+                    if progress:
+                        progress(completed, len(source_keys))
+            if failures:
+                raise failures[0]
+    return {source_id: cached[key] for source_id, key in source_keys}
+
+
+def _checkpoint(
+    cache_file: Any,
+    row: dict[str, Any],
+    key: tuple[str, ...],
+    triples: list[Triple],
+    cached: dict[tuple[str, ...], list[Triple]],
+) -> None:
+    row["triples"] = [triple.model_dump() for triple in triples]
+    cache_file.write(json.dumps(row, ensure_ascii=False) + "\n")
+    cache_file.flush()
+    cached[key] = triples
 
 
 def _cache_key(row: dict[str, Any]) -> tuple[str, ...]:

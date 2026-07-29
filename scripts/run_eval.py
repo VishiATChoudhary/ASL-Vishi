@@ -1,8 +1,8 @@
 """Evaluate damped PPR on the transductive open-corpus MuSiQue variant.
 
-Configurations are selected on dev. The selected nonzero configuration is
-then compared with vanilla PPR on held-out test questions using paired
-bootstrap resampling.
+Entropy and degree configurations are selected independently on dev, then
+compared with vanilla PPR on held-out test questions using paired bootstrap
+resampling. Entropy is the primary hypothesis; degree is an ablation.
 """
 
 from __future__ import annotations
@@ -65,6 +65,11 @@ def scores(records: list[dict[str, Any]]) -> np.ndarray:
     return np.asarray([record["score"] for record in records], dtype=float)
 
 
+def source_coverage(questions: list[dict[str, Any]], available: set[str]) -> float:
+    supporting = [source for question in questions for source in set(question["supporting"])]
+    return sum(source in available for source in supporting) / len(supporting)
+
+
 def bootstrap_mean_ci(values: np.ndarray, n_resamples: int, seed: int) -> tuple[float, float]:
     if values.size == 0:
         raise ValueError("cannot bootstrap an empty split")
@@ -124,9 +129,17 @@ def main() -> None:
     test = [question for question in questions if question.get("split") == "test"]
     if not dev or not test:
         raise ValueError("question metadata must contain non-empty dev and test splits")
+    available_sources = {source for sources in kg.node_sources.values() for source in sources}
+    coverage = {
+        "dev": source_coverage(dev, available_sources),
+        "test": source_coverage(test, available_sources),
+    }
     embedder = Embedder()
 
     print(f"dev={len(dev)} test={len(test)} k={args.k} (transductive open-corpus MuSiQue variant)")
+    print(
+        f"Supporting-source graph coverage: dev={coverage['dev']:.3f} test={coverage['test']:.3f}"
+    )
     print("\nDev sweep for configuration selection:")
     print(f"{'kernel':>8} {'beta':>7} | {'dev Recall@' + str(args.k):>14}")
     print("-" * 35)
@@ -139,50 +152,70 @@ def main() -> None:
             dev_results.append(result)
             print(f"{kernel:>8} {beta:>7g} | {mean:>14.3f}")
 
-    eligible = [result for result in dev_results if result["beta"] > 0]
-    selected_config = sorted(
-        eligible,
-        key=lambda result: (-result["mean"], result["kernel"], result["beta"]),
-    )[0]
-    kernel = selected_config["kernel"]
-    beta = selected_config["beta"]
-    print(f"\nSelected on dev: kernel={kernel} beta={beta:g}")
+    selected_configs = {}
+    for kernel in ("entropy", "degree"):
+        eligible = [
+            result for result in dev_results if result["kernel"] == kernel and result["beta"] > 0
+        ]
+        selected_configs[kernel] = sorted(
+            eligible, key=lambda result: (-result["mean"], result["beta"])
+        )[0]
+    print("\nSelected independently on dev:")
+    for kernel, config in selected_configs.items():
+        print(f"  {kernel}: beta={config['beta']:g} Recall@{args.k}={config['mean']:.3f}")
 
-    baseline_records = evaluate_config(kg, test, embedder, beta=0.0, kernel="entropy", k=args.k)
-    selected_records = evaluate_config(kg, test, embedder, beta=beta, kernel=kernel, k=args.k)
-    baseline_scores = scores(baseline_records)
-    selected_scores = scores(selected_records)
+    test_records = {
+        "baseline": evaluate_config(kg, test, embedder, beta=0.0, kernel="entropy", k=args.k)
+    }
+    for kernel, config in selected_configs.items():
+        test_records[kernel] = evaluate_config(
+            kg,
+            test,
+            embedder,
+            beta=config["beta"],
+            kernel=kernel,
+            k=args.k,
+        )
+    baseline_scores = scores(test_records["baseline"])
     baseline_ci = bootstrap_mean_ci(baseline_scores, args.bootstrap, args.seed)
-    selected_ci = bootstrap_mean_ci(selected_scores, args.bootstrap, args.seed)
-    delta = selected_scores - baseline_scores
-    delta_ci = paired_delta_ci(baseline_scores, selected_scores, args.bootstrap, args.seed)
-    wins = int(np.sum(delta > 0))
-    losses = int(np.sum(delta < 0))
-    ties = int(np.sum(delta == 0))
-
     baseline_mean = float(baseline_scores.mean())
-    selected_mean = float(selected_scores.mean())
-    delta_mean = float(delta.mean())
     print("\nHeld-out test results:")
     print(
         f"  vanilla beta=0:       {baseline_mean:.3f}  "
         f"CI95 [{baseline_ci[0]:.3f}, {baseline_ci[1]:.3f}]"
     )
-    print(
-        f"  {kernel} beta={beta:g}:      {selected_mean:.3f}  "
-        f"CI95 [{selected_ci[0]:.3f}, {selected_ci[1]:.3f}]"
-    )
-    print(
-        f"  paired delta:         {delta_mean:+.3f}  CI95 [{delta_ci[0]:+.3f}, {delta_ci[1]:+.3f}]"
-    )
-    print(f"  per-question W/L/T:   {wins}/{losses}/{ties}")
-    if delta_ci[0] > 0:
-        interpretation = "positive paired interval on this sampled corpus"
-    elif delta_ci[1] < 0:
-        interpretation = "negative paired interval on this sampled corpus"
-    else:
-        interpretation = "paired interval includes zero; result is inconclusive"
-    print(f"  interpretation:       {interpretation}")
+    summaries = {}
+    for kernel in ("entropy", "degree"):
+        candidate_scores = scores(test_records[kernel])
+        candidate_ci = bootstrap_mean_ci(candidate_scores, args.bootstrap, args.seed)
+        delta = candidate_scores - baseline_scores
+        delta_ci = paired_delta_ci(baseline_scores, candidate_scores, args.bootstrap, args.seed)
+        if delta_ci[0] > 0:
+            interpretation = "positive paired interval on this sampled corpus"
+        elif delta_ci[1] < 0:
+            interpretation = "negative paired interval on this sampled corpus"
+        else:
+            interpretation = "paired interval includes zero; result is inconclusive"
+        summaries[kernel] = {
+            "mean": float(candidate_scores.mean()),
+            "ci95": list(candidate_ci),
+            "delta_mean": float(delta.mean()),
+            "delta_ci95": list(delta_ci),
+            "wins": int(np.sum(delta > 0)),
+            "losses": int(np.sum(delta < 0)),
+            "ties": int(np.sum(delta == 0)),
+            "interpretation": interpretation,
+        }
+        beta = selected_configs[kernel]["beta"]
+        summary = summaries[kernel]
+        print(
+            f"  {kernel} beta={beta:g}: {summary['mean']:.3f}  "
+            f"delta={summary['delta_mean']:+.3f} "
+            f"delta CI95 [{summary['delta_ci95'][0]:+.3f}, "
+            f"{summary['delta_ci95'][1]:+.3f}] "
+            f"W/L/T={summary['wins']}/{summary['losses']}/{summary['ties']}"
+        )
+    print(f"  primary interpretation: {summaries['entropy']['interpretation']}")
 
     report = {
         "protocol": {
@@ -198,31 +231,19 @@ def main() -> None:
             "questions_sha256": questions_sha256,
         },
         "sample_sizes": {"dev": len(dev), "test": len(test)},
+        "supporting_source_coverage": coverage,
         "dev_sweep": dev_results,
-        "selected": selected_config,
+        "selected_on_dev": selected_configs,
         "test": {
             "baseline": {
                 "kernel": "entropy",
                 "beta": 0.0,
                 "mean": baseline_mean,
                 "ci95": list(baseline_ci),
-                "records": baseline_records,
+                "records": test_records["baseline"],
             },
-            "selected": {
-                "kernel": kernel,
-                "beta": beta,
-                "mean": selected_mean,
-                "ci95": list(selected_ci),
-                "records": selected_records,
-            },
-            "paired_delta": {
-                "mean": delta_mean,
-                "ci95": list(delta_ci),
-                "wins": wins,
-                "losses": losses,
-                "ties": ties,
-                "interpretation": interpretation,
-            },
+            "entropy": {**summaries["entropy"], "records": test_records["entropy"]},
+            "degree": {**summaries["degree"], "records": test_records["degree"]},
         },
     }
     ARTIFACTS.mkdir(parents=True, exist_ok=True)

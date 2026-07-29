@@ -105,6 +105,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--provider", choices=sorted(DEFAULT_MODELS), default="claude")
     parser.add_argument("--model", help="exact model ID; defaults to the provider's pinned model")
     parser.add_argument("--effort", choices=sorted(EFFORTS), default="low")
+    parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--max-chunks", type=int, default=40)
     parser.add_argument("--turns-per-chunk", type=int, default=6)
     parser.add_argument("--sample-index", type=int, default=0)
@@ -117,10 +118,16 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def report_progress(completed: int, total: int) -> None:
+    step = max(1, total // 20)
+    if completed == 0 or completed == total or completed % step == 0:
+        print(f"Extracted or loaded {completed}/{total}", flush=True)
+
+
 def main() -> None:
     args = parse_args()
-    if args.max_chunks < 1 or args.turns_per_chunk < 1:
-        raise ValueError("--max-chunks and --turns-per-chunk must be positive")
+    if args.max_chunks < 1 or args.turns_per_chunk < 1 or args.workers < 1:
+        raise ValueError("--max-chunks, --turns-per-chunk, and --workers must be positive")
 
     data = download()
     if not 0 <= args.sample_index < len(data):
@@ -158,6 +165,8 @@ def main() -> None:
         chunks,
         cache_path=CACHE / f"locomo_triples_{args.provider}_{args.prompt}.jsonl",
         system=PROMPTS[args.prompt],
+        workers=args.workers,
+        progress=report_progress,
     )
     kg = KG()
     for source_id, triples in triples_by_source.items():

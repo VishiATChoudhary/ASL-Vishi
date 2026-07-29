@@ -172,7 +172,10 @@ def main() -> None:
 
     print(f"Spearman(in-domain, off-domain):  rho={rho_off:.2f} p={p_off:.3g}")
     print(f"Spearman(in-domain, random-seed): rho={rho_random:.2f} p={p_random:.3g}")
-    print("High agreement, especially with random seeds, is evidence of graph-level bias.")
+    if np.isfinite(rho_random) and rho_random >= 0.5:
+        print("The random-seed agreement is consistent with graph-level retrieval bias.")
+    else:
+        print("The random-seed control does not show strong graph-level retrieval bias.")
     print("With eight questions per condition, treat these diagnostics as exploratory.")
     print(
         "Wrote "

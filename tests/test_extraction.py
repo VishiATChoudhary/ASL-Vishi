@@ -129,6 +129,26 @@ def test_extract_corpus_caches_complete_results_with_provenance(tmp_path):
     assert len(row["schema_sha256"]) == 64
 
 
+def test_extract_corpus_runs_missing_items_with_bounded_workers(tmp_path):
+    triple = Triple(subject="a", relation="r", object="b")
+    runner = FakeRunner(claude_output([triple]), claude_output([triple]))
+    extractor = CLIExtractor(provider="claude", runner=runner)
+    progress = []
+
+    result = extract_corpus(
+        extractor,
+        [("s1", "first"), ("s2", "second")],
+        tmp_path / "cache.jsonl",
+        workers=2,
+        progress=lambda completed, total: progress.append((completed, total)),
+    )
+
+    assert result == {"s1": [triple], "s2": [triple]}
+    assert len(runner.extraction_calls) == 2
+    assert progress[0] == (0, 2)
+    assert progress[-1] == (2, 2)
+
+
 @pytest.mark.parametrize(
     ("first", "second"),
     [
