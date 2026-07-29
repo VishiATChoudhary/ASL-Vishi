@@ -1,6 +1,6 @@
 import math
 
-from supernode_poc.graph import KG
+from supernode_poc.graph import KG, fragment_by_source
 from supernode_poc.models import Triple
 
 
@@ -46,3 +46,25 @@ def test_save_load_roundtrip_creates_parent(tmp_path):
     assert loaded.edges() == kg.edges()
     assert loaded.node_sources == kg.node_sources
     assert loaded.metadata == kg.metadata
+    assert loaded.edge_records() == kg.edge_records()
+
+
+def test_fragment_by_source_preserves_semantics_and_adds_optional_identity_edge():
+    kg = KG()
+    kg.add_triples(make_triples([("Alice", "likes", "tea")]), "s1")
+    kg.add_triples(make_triples([("Alice", "lives_in", "Paris")]), "s2")
+
+    fragmented, groups = fragment_by_source(kg, {"alice"}, seed=0)
+    fragments = groups["alice"]
+    assert len(fragments) == 2
+    assert fragmented.labels(fragments) == ["alice", "alice"]
+    assert {frozenset(fragmented.node_sources[node]) for node in fragments} == {
+        frozenset({"s1"}),
+        frozenset({"s2"}),
+    }
+    assert all(record[3] in {"s1", "s2"} for record in fragmented.edge_records())
+
+    repaired, repaired_groups = fragment_by_source(kg, {"alice"}, seed=0, identity_weight=0.3)
+    identity = [record for record in repaired.edge_records() if record[2] == "same_as"]
+    assert repaired_groups == groups
+    assert identity == [(fragments[0], fragments[1], "same_as", None, 0.3)]

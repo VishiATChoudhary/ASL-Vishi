@@ -163,3 +163,57 @@ entropy metric specifically identifies bad supernodes, nor that entropy
 damping improves held-out retrieval. The retrieval result is inconclusive and
 the degree ablation gives no evidence that relation entropy is the useful part
 of the kernel.
+
+## Entity-fragmentation PoC result, 2026-07-29
+
+The updated research proposal identifies entity-resolution failure as the more
+important candidate fault: the same real entity can become separate graph nodes
+when sources are ingested independently. The controlled PoC injects that fault
+without changing triples, source provenance, or semantic embedding labels. This
+isolates graph identity from extraction quality.
+
+Run the recorded experiment from the cached Claude and Codex extractions:
+
+```bash
+uv run python scripts/run_fragmentation_poc.py
+```
+
+The broad test split 0 to 100 percent of entities appearing in multiple sources
+into two source-consistent shards. Ordinary multi-seed Recall@5 did not decline
+monotonically. At full fragmentation it changed from 0.431 to 0.448 for Claude
+and from 0.397 to 0.396 for Codex. This broad hypothesis was not verified. The
+retriever can seed semantically identical shards independently, which masks the
+lost graph connection.
+
+The narrower bridge probe tests the exact proposed mechanism. For each eligible
+MuSiQue question, it selects one entity shared by supporting sources, seeds one
+source-side shard, and measures recall of the other supporting evidence. The
+fault is a source-consistent split. The repair is an oracle-correct `same_as`
+edge with a reserved fraction of transition mass. Identity-mix candidates were
+selected on 30 dev questions, and the selected value of 0.5 was evaluated once
+on the 30-question test split. Each case used five deterministic fragmentation
+trials.
+
+| Extractor | Eligible test questions | Original | Fragmented | Soft repair | Fragmentation delta, 95% CI | Repair delta, 95% CI | Gap recovered |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Claude | 24 | 0.750 | 0.150 | 0.642 | -0.600 [-0.783, -0.408] | +0.492 [+0.308, +0.675] | 81.9% |
+| Codex | 22 | 0.773 | 0.100 | 0.718 | -0.673 [-0.845, -0.473] | +0.618 [+0.418, +0.800] | 91.9% |
+
+This verifies a narrow causal claim on two independently extracted graphs:
+splitting an identity bridge destroys cross-source evidence traversal, and a
+confidence-weighted soft identity transition restores most of it. It does not
+show how often natural incremental ingestion creates these splits, whether an
+automatic resolver can find the correct links, or whether repair improves the
+broad end-to-end retriever. The repair uses oracle-correct links, and the chosen
+mix is at the upper edge of the tested grid. The bridge probe was designed after
+observing the broad null result, although its criteria were fixed before its
+outcomes were run, so an independent confirmatory replication remains necessary.
+
+The appropriate PoC is therefore the interactive identity-bridge failure and
+soft-repair demonstration, backed by the held-out table above. The next research
+stage should measure natural duplicate rate under batch versus incremental
+ingestion, evaluate a real resolver against manually adjudicated aliases, inject
+wrong links to measure merge risk, and then rerun end-to-end question retrieval.
+Full results and per-condition provenance are in
+`artifacts/fragmentation_poc.json`; the broad negative result and verified bridge
+result are plotted in `artifacts/fragmentation_dose_response.png`.

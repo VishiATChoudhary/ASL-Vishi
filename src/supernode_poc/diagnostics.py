@@ -47,7 +47,7 @@ def retrieval_frequency(
     matrix, nodes = transition_matrix(kg, beta=beta)
     if not nodes:
         return Counter()
-    node_embeddings = embedder.embed(nodes)
+    node_embeddings = embedder.embed(kg.labels(nodes))
     frequency: Counter[str] = Counter()
     for question in questions:
         similarities = node_embeddings @ embedder.embed([question])[0]

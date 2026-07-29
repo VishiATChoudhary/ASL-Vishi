@@ -17,10 +17,15 @@ def _nonnegative_float(value: float, name: str) -> float:
 
 
 def transition_matrix(
-    kg: KG, beta: float = 0.0, kernel: str = "entropy"
+    kg: KG,
+    beta: float = 0.0,
+    kernel: str = "entropy",
+    identity_mix: float | None = None,
 ) -> tuple[sp.csr_matrix, list[str]]:
     """Return a row-stochastic undirected walk matrix and its node order."""
     beta = _nonnegative_float(beta, "beta")
+    if identity_mix is not None and (not math.isfinite(identity_mix) or not 0 <= identity_mix <= 1):
+        raise ValueError("identity_mix must be in [0, 1]")
     nodes = kg.nodes()
     size = len(nodes)
     if kernel == "entropy":
@@ -36,11 +41,25 @@ def transition_matrix(
     rows: list[int] = []
     cols: list[int] = []
     log_values: list[float] = []
-    for subject, object_, _ in kg.edges():
+    records = kg.edge_records()
+    walk_records = (
+        [record for record in records if record[2] != "same_as"]
+        if identity_mix is not None
+        else records
+    )
+    for subject, object_, _, _, weight in walk_records:
+        if not math.isfinite(weight) or weight <= 0:
+            raise ValueError("edge weights must be finite and positive")
         i, j = index[subject], index[object_]
         rows.extend((i, j))
         cols.extend((j, i))
-        log_values.extend((-beta * math.log1p(penalty[j]), -beta * math.log1p(penalty[i])))
+        log_weight = math.log(weight)
+        log_values.extend(
+            (
+                log_weight - beta * math.log1p(penalty[j]),
+                log_weight - beta * math.log1p(penalty[i]),
+            )
+        )
 
     if rows:
         # Per-row rescaling is algebraically cancelled by normalization and
@@ -57,7 +76,30 @@ def transition_matrix(
     if dangling.any():
         adjacency = adjacency + sp.diags(dangling.astype(float), format="csr")
         row_sum[dangling] = 1.0
-    return (sp.diags(1.0 / row_sum) @ adjacency).tocsr(), nodes
+    matrix = (sp.diags(1.0 / row_sum) @ adjacency).tocsr()
+    if identity_mix is not None and identity_mix > 0:
+        identity_rows: list[int] = []
+        identity_cols: list[int] = []
+        identity_values: list[float] = []
+        for subject, object_, relation, _, weight in records:
+            if relation != "same_as":
+                continue
+            i, j = index[subject], index[object_]
+            identity_rows.extend((i, j))
+            identity_cols.extend((j, i))
+            identity_values.extend((weight, weight))
+        identity = sp.csr_matrix(
+            (identity_values, (identity_rows, identity_cols)), shape=(size, size)
+        )
+        identity_sum = np.asarray(identity.sum(axis=1)).ravel()
+        has_identity = identity_sum > 0
+        if has_identity.any():
+            inverse = np.zeros(size, dtype=float)
+            inverse[has_identity] = 1.0 / identity_sum[has_identity]
+            identity = sp.diags(inverse) @ identity
+            mix = identity_mix * has_identity.astype(float)
+            matrix = sp.diags(1.0 - mix) @ matrix + sp.diags(mix) @ identity
+    return matrix.tocsr(), nodes
 
 
 def ppr(
@@ -168,7 +210,7 @@ def retrieve(
     matrix, nodes = transition_matrix(kg, beta=beta, kernel=kernel)
     if not nodes:
         return []
-    node_embeddings = np.asarray(embedder.embed(nodes), dtype=float)
+    node_embeddings = np.asarray(embedder.embed(kg.labels(nodes)), dtype=float)
     query_embedding = np.asarray(embedder.embed([question]), dtype=float)
     if node_embeddings.ndim != 2 or node_embeddings.shape[0] != len(nodes):
         raise ValueError("embedder returned an invalid node embedding matrix")

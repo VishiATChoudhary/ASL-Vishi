@@ -55,6 +55,26 @@ def test_degree_kernel_damps_homogeneous_hub_too():
     assert run_ppr_from_leaf(kg, 1, "degree")["hub"] < run_ppr_from_leaf(kg, 0)["hub"]
 
 
+def test_transition_respects_edge_weights():
+    kg = KG()
+    kg.g.add_edge("a", "b", relation="r", source_id="s", weight=1.0)
+    kg.g.add_edge("a", "c", relation="same_as", source_id=None, weight=3.0)
+    matrix, nodes = transition_matrix(kg)
+    row = matrix.getrow(nodes.index("a")).toarray()[0]
+    assert np.isclose(row[nodes.index("b")], 0.25)
+    assert np.isclose(row[nodes.index("c")], 0.75)
+
+
+def test_identity_mix_reserves_transition_mass_for_same_as_edges():
+    kg = KG()
+    kg.g.add_edge("a", "b", relation="r", source_id="s", weight=1.0)
+    kg.g.add_edge("a", "c", relation="same_as", source_id=None, weight=1.0)
+    matrix, nodes = transition_matrix(kg, identity_mix=0.3)
+    row = matrix.getrow(nodes.index("a")).toarray()[0]
+    assert np.isclose(row[nodes.index("b")], 0.7)
+    assert np.isclose(row[nodes.index("c")], 0.3)
+
+
 def test_source_scoring_spreads_shared_node_mass():
     kg = KG()
     kg.add_triples([Triple(subject="hub", relation="r1", object="a")], "s1")
