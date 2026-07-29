@@ -19,6 +19,7 @@ from supernode_poc.diagnostics import (
     retrieval_frequency,
 )
 from supernode_poc.embeddings import Embedder
+from supernode_poc.extraction import DEFAULT_MODELS, PROMPTS
 from supernode_poc.graph import KG
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -60,6 +61,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--k", type=int, default=5)
     parser.add_argument("--top-nodes", type=int, default=30)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--provider", choices=sorted(DEFAULT_MODELS), default="claude")
+    parser.add_argument("--prompt", choices=sorted(PROMPTS), default="neutral")
     return parser.parse_args()
 
 
@@ -67,9 +70,12 @@ def main() -> None:
     args = parse_args()
     if args.k < 1 or args.top_nodes < 1:
         raise ValueError("--k and --top-nodes must be positive")
-    graph_path = ARTIFACTS / "locomo_kg.json"
+    run_name = f"locomo_{args.provider}_{args.prompt}"
+    graph_path = ARTIFACTS / f"{run_name}_kg.json"
     if not graph_path.exists():
-        raise FileNotFoundError("run scripts/ingest_locomo.py first")
+        raise FileNotFoundError(
+            f"run scripts/ingest_locomo.py --provider {args.provider} --prompt {args.prompt} first"
+        )
 
     ARTIFACTS.mkdir(parents=True, exist_ok=True)
     kg = KG.load(graph_path)
@@ -93,7 +99,7 @@ def main() -> None:
         fontsize=8,
     )
     fig.tight_layout()
-    degree_path = ARTIFACTS / "degree_distribution.png"
+    degree_path = ARTIFACTS / f"{run_name}_degree_distribution.png"
     fig.savefig(degree_path, dpi=150)
     plt.close(fig)
 
@@ -127,12 +133,13 @@ def main() -> None:
     for node in sorted(common, key=lambda value: (-kg.leakiness(value), value))[:5]:
         ax.annotate(node, (freq_real.get(node, 0), freq_random.get(node, 0)), fontsize=7)
     fig.tight_layout()
-    bias_path = ARTIFACTS / "bias_curve.png"
+    bias_path = ARTIFACTS / f"{run_name}_bias_curve.png"
     fig.savefig(bias_path, dpi=150)
     plt.close(fig)
 
     metrics = {
         "protocol": {
+            "extraction": kg.metadata,
             "k": args.k,
             "top_nodes": len(common),
             "questions_per_condition": len(REAL_QUESTIONS),
@@ -160,7 +167,7 @@ def main() -> None:
             for node in common
         ],
     }
-    metrics_path = ARTIFACTS / "diagnostic_metrics.json"
+    metrics_path = ARTIFACTS / f"{run_name}_diagnostic_metrics.json"
     metrics_path.write_text(json.dumps(metrics, indent=2, allow_nan=False), encoding="utf-8")
 
     print(f"Spearman(in-domain, off-domain):  rho={rho_off:.2f} p={p_off:.3g}")

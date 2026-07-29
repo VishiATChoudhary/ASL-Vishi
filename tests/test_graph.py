@@ -37,6 +37,7 @@ def test_relation_entropy_positive_for_heterogeneous_hub():
 
 def test_save_load_roundtrip_creates_parent(tmp_path):
     kg = KG()
+    kg.metadata = {"provider": "claude", "model": "claude-opus-5"}
     kg.add_triples(make_triples([("a", "r1", "b"), ("a", "r2", "c")]), "s1")
     path = tmp_path / "nested" / "kg.json"
     kg.save(path)
@@ -44,3 +45,4 @@ def test_save_load_roundtrip_creates_parent(tmp_path):
     assert loaded.nodes() == kg.nodes()
     assert loaded.edges() == kg.edges()
     assert loaded.node_sources == kg.node_sources
+    assert loaded.metadata == kg.metadata

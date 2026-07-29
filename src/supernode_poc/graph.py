@@ -4,6 +4,7 @@ import json
 import math
 from collections import Counter
 from pathlib import Path
+from typing import Any
 
 import networkx as nx
 
@@ -16,6 +17,7 @@ class KG:
     def __init__(self) -> None:
         self.g = nx.MultiDiGraph()
         self.node_sources: dict[str, set[str]] = {}
+        self.metadata: dict[str, Any] = {}
 
     @staticmethod
     def normalize(name: str) -> str:
@@ -61,6 +63,7 @@ class KG:
         destination.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "edges": self.edges(),
+            "metadata": self.metadata,
             "node_sources": {
                 node: sorted(sources) for node, sources in sorted(self.node_sources.items())
             },
@@ -77,4 +80,5 @@ class KG:
         for subject, object_, relation in payload["edges"]:
             kg.g.add_edge(subject, object_, relation=relation)
         kg.node_sources = {node: set(sources) for node, sources in payload["node_sources"].items()}
+        kg.metadata = payload.get("metadata", {})
         return kg

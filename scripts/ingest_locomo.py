@@ -1,7 +1,4 @@
-"""Build and visualize a KG from one LoCoMo conversation.
-
-Usage: uv run python scripts/ingest_locomo.py [--model claude-opus-5]
-"""
+"""Build and visualize a LoCoMo KG through Claude or Codex CLI extraction."""
 
 from __future__ import annotations
 
@@ -11,11 +8,10 @@ import math
 from pathlib import Path
 from typing import Any
 
-import anthropic
 import requests
 from pyvis.network import Network
 
-from supernode_poc.extraction import PROMPTS, extract_corpus
+from supernode_poc.extraction import DEFAULT_MODELS, EFFORTS, PROMPTS, CLIExtractor, extract_corpus
 from supernode_poc.graph import KG
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -106,7 +102,9 @@ def write_visualization(kg: KG, path: Path) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model", default="claude-opus-5")
+    parser.add_argument("--provider", choices=sorted(DEFAULT_MODELS), default="claude")
+    parser.add_argument("--model", help="exact model ID; defaults to the provider's pinned model")
+    parser.add_argument("--effort", choices=sorted(EFFORTS), default="low")
     parser.add_argument("--max-chunks", type=int, default=40)
     parser.add_argument("--turns-per-chunk", type=int, default=6)
     parser.add_argument("--sample-index", type=int, default=0)
@@ -114,7 +112,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--prepare-only",
         action="store_true",
-        help="download, validate, and chunk LoCoMo without calling Claude",
+        help="download, validate, and chunk LoCoMo without invoking a model CLI",
     )
     return parser.parse_args()
 
@@ -141,18 +139,24 @@ def main() -> None:
     sources_path.write_text(
         json.dumps(dict(chunks), ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    print(f"Prepared {len(chunks)} chunks with prompt={args.prompt}")
+    print(f"Prepared {len(chunks)} chunks with provider={args.provider} prompt={args.prompt}")
     if args.prepare_only:
-        print("No Claude API calls were made.")
+        print("No model CLI calls were made.")
         return
 
-    print("Starting triple extraction.")
-
-    triples_by_source = extract_corpus(
-        anthropic.Anthropic(),
-        chunks,
-        cache_path=CACHE / f"locomo_triples_{args.prompt}.jsonl",
+    extractor = CLIExtractor(
+        provider=args.provider,
         model=args.model,
+        effort=args.effort,
+    )
+    print(
+        f"Starting extraction with {extractor.provider} model={extractor.model} "
+        f"effort={extractor.effort}."
+    )
+    triples_by_source = extract_corpus(
+        extractor,
+        chunks,
+        cache_path=CACHE / f"locomo_triples_{args.provider}_{args.prompt}.jsonl",
         system=PROMPTS[args.prompt],
     )
     kg = KG()
@@ -160,9 +164,18 @@ def main() -> None:
         kg.add_triples(triples, source_id)
     if not kg.nodes():
         raise ValueError("triple extraction produced an empty graph")
+    kg.metadata = {
+        "corpus": "LoCoMo",
+        "sample_index": args.sample_index,
+        "turns_per_chunk": args.turns_per_chunk,
+        "chunk_count": len(chunks),
+        "prompt": args.prompt,
+        **extractor.provenance(PROMPTS[args.prompt]),
+    }
 
-    graph_path = ARTIFACTS / "locomo_kg.json"
-    html_path = ARTIFACTS / "locomo_graph.html"
+    run_name = f"locomo_{args.provider}_{args.prompt}"
+    graph_path = ARTIFACTS / f"{run_name}_kg.json"
+    html_path = ARTIFACTS / f"{run_name}_graph.html"
     kg.save(graph_path)
     write_visualization(kg, html_path)
 

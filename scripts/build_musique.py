@@ -1,4 +1,4 @@
-"""Build a KG for a transductive, open-corpus MuSiQue experiment.
+"""Build a MuSiQue KG through Claude or Codex CLI extraction.
 
 All paragraphs from sampled questions share one deduplicated corpus. This is
 not the standard per-question candidate-ranking task.
@@ -13,10 +13,9 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
-import anthropic
 from datasets import load_dataset
 
-from supernode_poc.extraction import PROMPTS, extract_corpus
+from supernode_poc.extraction import DEFAULT_MODELS, EFFORTS, PROMPTS, CLIExtractor, extract_corpus
 from supernode_poc.graph import KG
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -77,13 +76,15 @@ def select_rows(dataset: Any, count: int, seed: int) -> list[Mapping[str, Any]]:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--n-questions", type=int, default=60)
-    parser.add_argument("--model", default="claude-opus-5")
+    parser.add_argument("--provider", choices=sorted(DEFAULT_MODELS), default="claude")
+    parser.add_argument("--model", help="exact model ID; defaults to the provider's pinned model")
+    parser.add_argument("--effort", choices=sorted(EFFORTS), default="low")
     parser.add_argument("--prompt", choices=sorted(PROMPTS), default="neutral")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
         "--prepare-only",
         action="store_true",
-        help="write question metadata and report corpus size without calling Claude",
+        help="write question metadata and report corpus size without invoking a model CLI",
     )
     return parser.parse_args()
 
@@ -143,14 +144,22 @@ def main() -> None:
     )
     print("Protocol: transductive open-corpus MuSiQue variant")
     if args.prepare_only:
-        print("No Claude API calls were made.")
+        print("No model CLI calls were made.")
         return
 
-    triples_by_source = extract_corpus(
-        anthropic.Anthropic(),
-        items,
-        cache_path=CACHE / f"musique_triples_{args.prompt}.jsonl",
+    extractor = CLIExtractor(
+        provider=args.provider,
         model=args.model,
+        effort=args.effort,
+    )
+    print(
+        f"Starting extraction with {extractor.provider} model={extractor.model} "
+        f"effort={extractor.effort}."
+    )
+    triples_by_source = extract_corpus(
+        extractor,
+        items,
+        cache_path=CACHE / f"musique_triples_{args.provider}_{args.prompt}.jsonl",
         system=PROMPTS[args.prompt],
     )
     kg = KG()
@@ -158,7 +167,15 @@ def main() -> None:
         kg.add_triples(triples, source_id)
     if not kg.nodes():
         raise ValueError("triple extraction produced an empty graph")
-    graph_path = ARTIFACTS / "musique_kg.json"
+    kg.metadata = {
+        "corpus": "MuSiQue transductive open-corpus variant",
+        "question_count": len(questions),
+        "seed": args.seed,
+        "prompt": args.prompt,
+        "questions_sha256": hashlib.sha256(questions_path.read_bytes()).hexdigest(),
+        **extractor.provenance(PROMPTS[args.prompt]),
+    }
+    graph_path = ARTIFACTS / f"musique_{args.provider}_{args.prompt}_kg.json"
     kg.save(graph_path)
     print(f"Graph: {len(kg.nodes())} nodes, {len(kg.edges())} edges")
     print(f"Wrote {graph_path.relative_to(ROOT)}")

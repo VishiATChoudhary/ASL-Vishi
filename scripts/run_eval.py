@@ -16,6 +16,7 @@ from typing import Any
 import numpy as np
 
 from supernode_poc.embeddings import Embedder
+from supernode_poc.extraction import DEFAULT_MODELS, PROMPTS
 from supernode_poc.graph import KG
 from supernode_poc.retrieval import retrieve
 
@@ -92,6 +93,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--k", type=int, default=5)
     parser.add_argument("--bootstrap", type=int, default=2_000)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--provider", choices=sorted(DEFAULT_MODELS), default="claude")
+    parser.add_argument("--prompt", choices=sorted(PROMPTS), default="neutral")
     return parser.parse_args()
 
 
@@ -106,10 +109,16 @@ def main() -> None:
     if not candidates:
         raise ValueError("provide at least one beta greater than zero")
 
-    graph_path = ARTIFACTS / "musique_kg.json"
+    graph_path = ARTIFACTS / f"musique_{args.provider}_{args.prompt}_kg.json"
     if not graph_path.exists() or not QUESTIONS_PATH.exists():
-        raise FileNotFoundError("run scripts/build_musique.py first")
+        raise FileNotFoundError(
+            f"run scripts/build_musique.py --provider {args.provider} --prompt {args.prompt} first"
+        )
     kg = KG.load(graph_path)
+    questions_sha256 = file_sha256(QUESTIONS_PATH)
+    expected_questions_sha256 = kg.metadata.get("questions_sha256")
+    if expected_questions_sha256 and expected_questions_sha256 != questions_sha256:
+        raise ValueError("question metadata does not match the graph build")
     questions = json.loads(QUESTIONS_PATH.read_text(encoding="utf-8"))
     dev = [question for question in questions if question.get("split") == "dev"]
     test = [question for question in questions if question.get("split") == "test"]
@@ -178,6 +187,7 @@ def main() -> None:
     report = {
         "protocol": {
             "name": "MuSiQue transductive open-corpus variant",
+            "extraction": kg.metadata,
             "standard_musique_task": False,
             "selection_split": "dev",
             "evaluation_split": "test",
@@ -185,7 +195,7 @@ def main() -> None:
             "bootstrap_resamples": args.bootstrap,
             "random_seed": args.seed,
             "graph_sha256": file_sha256(graph_path),
-            "questions_sha256": file_sha256(QUESTIONS_PATH),
+            "questions_sha256": questions_sha256,
         },
         "sample_sizes": {"dev": len(dev), "test": len(test)},
         "dev_sweep": dev_results,
@@ -216,7 +226,7 @@ def main() -> None:
         },
     }
     ARTIFACTS.mkdir(parents=True, exist_ok=True)
-    output_path = ARTIFACTS / "musique_eval.json"
+    output_path = ARTIFACTS / f"musique_{args.provider}_{args.prompt}_eval.json"
     output_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"Wrote {output_path.relative_to(ROOT)}")
 

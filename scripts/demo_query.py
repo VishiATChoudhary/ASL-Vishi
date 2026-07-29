@@ -8,6 +8,7 @@ import textwrap
 from pathlib import Path
 
 from supernode_poc.embeddings import Embedder
+from supernode_poc.extraction import DEFAULT_MODELS, PROMPTS
 from supernode_poc.graph import KG
 from supernode_poc.retrieval import retrieve
 
@@ -24,6 +25,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--betas", nargs="+", type=float, default=[0.0, 1.0])
     parser.add_argument("--kernel", choices=["entropy", "degree"], default="entropy")
     parser.add_argument("--k", type=int, default=3)
+    parser.add_argument("--provider", choices=sorted(DEFAULT_MODELS), default="claude")
+    parser.add_argument("--prompt", choices=sorted(PROMPTS), default="neutral")
     return parser.parse_args()
 
 
@@ -32,14 +35,17 @@ def main() -> None:
     if args.k < 1 or any(beta < 0 for beta in args.betas):
         raise ValueError("--k must be positive and --betas must be non-negative")
 
-    graph_path = ROOT / "artifacts/locomo_kg.json"
+    graph_path = ROOT / f"artifacts/locomo_{args.provider}_{args.prompt}_kg.json"
     sources_path = ROOT / "data/cache/locomo_sources.json"
     if not graph_path.exists() or not sources_path.exists():
-        raise FileNotFoundError("run scripts/ingest_locomo.py first")
+        raise FileNotFoundError(
+            f"run scripts/ingest_locomo.py --provider {args.provider} --prompt {args.prompt} first"
+        )
     kg = KG.load(graph_path)
     sources = json.loads(sources_path.read_text(encoding="utf-8"))
     embedder = Embedder()
 
+    print(f"Extraction: provider={args.provider} prompt={args.prompt}")
     print(f"Question: {args.question}")
     for beta in args.betas:
         print(f"\n=== kernel={args.kernel} beta={beta:g} ===")
