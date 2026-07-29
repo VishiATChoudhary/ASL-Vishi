@@ -8,3 +8,4 @@ artifacts/*
 data/cache/*
 !data/cache/.gitkeep
 data/raw/
+research/
