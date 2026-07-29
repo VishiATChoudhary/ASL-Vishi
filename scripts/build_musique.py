@@ -15,8 +15,14 @@ from typing import Any
 
 from datasets import load_dataset
 
-from supernode_poc.extraction import DEFAULT_MODELS, EFFORTS, PROMPTS, CLIExtractor, extract_corpus
-from supernode_poc.graph import KG
+from identity_integrity.extraction import (
+    DEFAULT_MODELS,
+    EFFORTS,
+    PROMPTS,
+    CLIExtractor,
+    extract_corpus,
+)
+from identity_integrity.graph import KG
 
 ROOT = Path(__file__).resolve().parents[1]
 CACHE = ROOT / "data/cache"

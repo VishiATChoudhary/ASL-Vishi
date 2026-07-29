@@ -1,4 +1,4 @@
 def test_package_imports() -> None:
-    import supernode_poc
+    import identity_integrity
 
-    assert supernode_poc.__version__ == "0.1.0"
+    assert identity_integrity.__version__ == "0.1.0"

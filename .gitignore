@@ -4,8 +4,11 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 artifacts/*
-!artifacts/.gitkeep
+!artifacts/fragmentation_dose_response.png
+!artifacts/fragmentation_poc.json
 data/cache/*
 !data/cache/.gitkeep
 data/raw/
-research/
+research/*
+!research/identity-integrity-proposal.pdf
+!research/identity-integrity-proposal.tex

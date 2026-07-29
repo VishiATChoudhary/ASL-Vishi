@@ -3,7 +3,7 @@ import subprocess
 
 import pytest
 
-from supernode_poc.extraction import (
+from identity_integrity.extraction import (
     PROMPTS,
     SYSTEM_NEUTRAL,
     CLIExtractor,
@@ -11,7 +11,7 @@ from supernode_poc.extraction import (
     extract_corpus,
     extract_triples,
 )
-from supernode_poc.models import Triple
+from identity_integrity.models import Triple
 
 
 class FakeRunner:
@@ -70,7 +70,7 @@ def test_extract_triples_uses_each_cli_structured_output_contract(provider, outp
     command, options = runner.extraction_calls[0]
     assert options["input"]
     assert options["capture_output"] is True
-    assert options["cwd"].name.startswith("supernode-poc-")
+    assert options["cwd"].name.startswith("identity-integrity-poc-")
     if provider == "claude":
         assert "--json-schema" in command
         assert command[command.index("--tools") + 1] == ""

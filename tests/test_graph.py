@@ -1,7 +1,5 @@
-import math
-
-from supernode_poc.graph import KG, fragment_by_source
-from supernode_poc.models import Triple
+from identity_integrity.graph import KG, fragment_by_source
+from identity_integrity.models import Triple
 
 
 def make_triples(pairs):
@@ -19,20 +17,6 @@ def test_add_triples_merges_normalized_nodes_and_tracks_sources():
     assert set(kg.nodes()) == {"alice", "acme", "berlin"}
     assert kg.node_sources["alice"] == {"ep1", "ep2"}
     assert kg.degree("alice") == 2
-
-
-def test_relation_entropy_zero_for_homogeneous_hub():
-    kg = KG()
-    kg.add_triples(make_triples([("acme", "employs", f"person{i}") for i in range(10)]), "s")
-    assert kg.relation_entropy("acme") == 0.0
-    assert kg.leakiness("acme") == 0.0
-
-
-def test_relation_entropy_positive_for_heterogeneous_hub():
-    kg = KG()
-    kg.add_triples(make_triples([("meeting", f"rel{i}", f"thing{i}") for i in range(10)]), "s")
-    assert math.isclose(kg.relation_entropy("meeting"), math.log(10))
-    assert kg.leakiness("meeting") > kg.leakiness("thing0")
 
 
 def test_save_load_roundtrip_creates_parent(tmp_path):

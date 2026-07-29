@@ -1,16 +1,15 @@
-"""In-memory knowledge graph and supernode diagnostics."""
+"""Source-aware knowledge graph with reversible identity fragmentation."""
 
 import json
 import math
 import random
-from collections import Counter
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
 import networkx as nx
 
-from supernode_poc.models import Triple
+from identity_integrity.models import Triple
 
 
 class KG:
@@ -76,18 +75,6 @@ class KG:
     def degree(self, node: str) -> int:
         return int(self.g.degree(node))
 
-    def relation_entropy(self, node: str) -> float:
-        relations = [data["relation"] for *_, data in self.g.in_edges(node, data=True)]
-        relations.extend(data["relation"] for *_, data in self.g.out_edges(node, data=True))
-        if not relations:
-            return 0.0
-        counts = Counter(relations)
-        total = len(relations)
-        return -sum((count / total) * math.log(count / total) for count in counts.values())
-
-    def leakiness(self, node: str) -> float:
-        return self.degree(node) * self.relation_entropy(node)
-
     def save(self, path: str | Path) -> None:
         destination = Path(path)
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -147,7 +134,9 @@ def fragment_by_source(
     """Split each selected entity consistently by source document."""
     if shards < 2:
         raise ValueError("shards must be at least 2")
-    if identity_weight is not None and (not math.isfinite(identity_weight) or identity_weight <= 0):
+    if identity_weight is not None and (
+        not math.isfinite(identity_weight) or identity_weight <= 0
+    ):
         raise ValueError("identity_weight must be finite and positive")
 
     selected = {

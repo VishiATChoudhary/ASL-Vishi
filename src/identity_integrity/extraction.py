@@ -14,7 +14,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from supernode_poc.models import Triple, TripleList
+from identity_integrity.models import Triple, TripleList
 
 SYSTEM_NEUTRAL = (
     "You extract knowledge-graph triples from text. "
@@ -99,7 +99,7 @@ class CLIExtractor:
         """Extract and validate triples without giving the model filesystem access."""
         schema = TripleList.model_json_schema()
         schema_json = json.dumps(schema, separators=(",", ":"), sort_keys=True)
-        with tempfile.TemporaryDirectory(prefix="supernode-poc-") as directory:
+        with tempfile.TemporaryDirectory(prefix="identity-integrity-poc-") as directory:
             cwd = Path(directory)
             if self.provider == "claude":
                 payload = self._extract_claude(text, system, schema_json, cwd)

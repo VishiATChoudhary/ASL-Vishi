@@ -1,0 +1,201 @@
+\documentclass[10pt]{article}
+
+\usepackage[a4paper,margin=1.6cm]{geometry}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{microtype}
+\usepackage{multicol}
+\usepackage[compact]{titlesec}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,urlcolor=blue!45!black]{hyperref}
+
+\titlespacing*{\section}{0pt}{0.65em}{0.25em}
+\titlespacing*{\subsection}{0pt}{0.45em}{0.2em}
+\setlist{nosep,leftmargin=*}
+\setlength{\parskip}{0.18em}
+\setlength{\parindent}{0pt}
+\emergencystretch=1.5em
+
+\title{\vspace{-1.6em}\Large\textbf{Soft Identity Constraints for LLM-Written Knowledge Graphs}\\[0.15em]
+\normalsize A vision for reliable graph memory under incremental ingestion\vspace{-0.5em}}
+\author{\normalsize Vishisht Choudhary \,\textperiodcentered\, \texttt{vishisht@invertix.ai}}
+\date{\normalsize Research vision, July 29, 2026\vspace{-1.3em}}
+
+\begin{document}
+\maketitle
+
+\section{Situation}
+
+Knowledge graphs are becoming a memory substrate for AI agents. Systems such as
+Graphiti, HippoRAG, GraphRAG, and Mem0 convert conversations and documents into
+entities and relations, then retrieve context through graph search and random walks.
+Unlike a conventional database, however, these graphs are written by a probabilistic
+model operating on partial context. The engine still assumes stable entity identity,
+valid edges, consistent schemas, and ordered updates, although no human curator now
+guarantees those invariants \cite{zep,hipporag,hipporag2,mem0,graphbench}.
+
+This mismatch produces structural, temporal, and semantic faults: one entity is split
+across aliases; distinct entities are merged into a generic hub; relations drift in
+name and granularity; stale facts remain active; and provenance is flattened. Evidence
+from research and production systems points especially to entity resolution. Reported
+duplication reaches 27--36\% in one document study, resolution degrades as context
+grows, and production pipelines combine exact matching, embedding retrieval, and LLM
+adjudication without claiming the problem is solved
+\cite{linkkg,itext2kg,kggen,cai,degrag}. Incremental ingestion is the critical setting for agent memory:
+each episode arrives without the global view a human curator would use to enforce
+\texttt{UNIQUE}.
+
+\section{Vision: Integrity Mechanisms for Probabilistic Writers}
+
+The long-term goal is an ``immune system'' for machine-written graphs: integrity
+mechanisms enforced by the storage and retrieval engine rather than delegated to an
+extraction prompt. Each violated invariant should have a measurable fault, a
+write-time guard, a reversible repair, and an end-to-end benchmark. Identity is the
+first work package because both under-resolution and over-resolution alter the paths
+through which an agent assembles evidence.
+
+The central design principle is that uncertain identity should not be forced into a
+binary merge decision. On insertion, the engine should retain source nodes and
+provenance, retrieve possible aliases, and write provisional \texttt{same\_as} edges
+with calibrated confidence. At read time, retrieval may traverse those edges in
+proportion to confidence. A correct provisional link reconnects scattered facts; an
+incorrect link has bounded influence and can be revoked. This is safer than an
+irreversible hard merge and more useful than leaving likely aliases disconnected.
+Existing systems already use multi-stage resolution \cite{zep,linkkg,degrag}. This
+motivates a separate question: should uncertainty be exposed to retrieval rather than
+collapsed into a single merge decision?
+
+For a node $v$ with identity confidence $c_v$, a simple retrieval operator reserves a
+bounded share of its outgoing probability for identity transitions:
+\[
+P(v,\cdot)=(1-\lambda c_v)P_{\mathrm{graph}}(v,\cdot)
+            +\lambda c_v P_{\mathrm{identity}}(v,\cdot),
+\]
+where $\lambda$ caps the effect of identity uncertainty. The broader research vision
+extends the same pattern to temporal validity, schema equivalence, provenance, and
+concurrent writers.
+
+\section{Preliminary Evidence}
+
+Our strongest preliminary result shows one identity failure and a partial repair. We
+used MuSiQue, a public collection of questions whose answers require combining facts
+from two or more source paragraphs, meaning short sections of the original documents
+\cite{musique}. The dataset identifies which
+paragraphs contain the required facts. Claude and Codex independently converted the
+same 1,048 paragraphs into two graphs. We evaluated macro-averaged supporting-passage
+Recall@5: the fraction of gold supporting paragraphs present in the top five retrieved
+results, averaged over questions.
+
+We restricted the test to questions with two required paragraphs that shared an
+entity. In the intact graph, one entity node was connected to facts from both
+paragraphs. We then simulated an identity error by splitting it into two disconnected
+nodes: the first kept only the edges extracted from paragraph A, and the second kept
+only those from paragraph B. We began retrieval at the first node and measured whether
+paragraph B appeared in the top five results. Finally, we connected the two nodes with
+a known-correct \texttt{same\_as} edge and repeated retrieval. The table reports the
+score before the split, after the split, and after reconnection. Its final column is
+the fraction of the lost score restored by the link:
+
+\begin{center}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+Extractor & Intact graph & Split graph & With link & Loss recovered \\
+\midrule
+Claude Opus 5 & 75.0\% & 15.0\% & 64.2\% & 81.9\% \\
+Codex GPT-5.6-sol & 77.3\% & 10.0\% & 71.8\% & 91.9\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\newpage
+The changes were consistent across questions: repeatedly resampling them produced 95\%
+uncertainty ranges that always showed a loss after splitting and a gain after linking.
+This demonstrates the mechanism under controlled conditions, not yet a common
+production failure. We created the split and supplied the correct link ourselves. We
+have not measured how often real ingestion creates duplicate nodes or whether an
+automatic resolver finds the right link. The focused test was also designed after a
+broader experiment found no effect, so it needs an independent replication fixed in
+advance.
+
+We separately tested ``supernodes,'' nodes with unusually many edges. Some graph
+retrievers rank nodes by repeatedly simulating a walk along edges \cite{hipporag,hipporag2}.
+A supernode may then appear important for many unrelated questions. In one 40-part
+conversation, the same highly connected people ranked near the top for many different
+queries. Penalizing nodes with many and varied edges reduced this concentration, but
+did not reliably improve retrieval of the correct source paragraphs. The supposed bad
+supernodes were often legitimate people or places, and a simple degree penalty worked
+as well as the proposed relation-aware score. Related work also finds that extraction
+errors do not change graph statistics uniformly, and that graph retrieval benefits
+depend strongly on the task and construction pipeline \cite{cai,graphbench}.
+
+This negative result may reflect scale: the study used one conversation and 60
+multi-source questions. A larger and more diverse experiment could reveal a smaller
+effect. Scale is not assumed to be the explanation, however. The proposed score may
+be wrong, or direct text similarity may bypass the graph error. A larger study with
+its analysis fixed in advance should distinguish these possibilities.
+
+\section{Research Programme}
+
+\textbf{Aim 1: establish the natural fault.} Compare the same extractor and corpus
+under (A) batch extraction with global context, (B) blind incremental extraction,
+and (C) incremental extraction with resolution. Repeat extraction to measure sampling
+instability. Manually adjudicate mention-to-entity clusters on a fixed sample. Primary
+outcomes are the duplicate-node rate, how an entity's facts are divided among its
+duplicates, and the percentage of required sources found in the first five results.
+Questions answerable from one source are the control. The prediction is conditional:
+fragmentation should hurt when it
+breaks a necessary evidence path, not uniformly across all questions
+\cite{linkkg,itext2kg,degrag}.
+
+\textbf{Aim 2: build reversible resolution.} Implement a cost-aware cascade:
+normalized exact matching, semantic similarity to propose candidates, contextual
+scoring, and LLM adjudication only for ambiguous cases. Preserve original nodes and attach calibrated
+confidence to provisional identity edges. Compare no resolution, hard merge, soft
+identity flow, and known-correct links under identical extraction and retrieval budgets.
+
+\textbf{Aim 3: test safety and generality.} Inject incorrect identity links to measure
+false bridging and compare graceful degradation with destructive hard merging. Run on
+LoCoMo and MuSiQue, then confirm on an untouched multi-document or long-memory
+benchmark. Replicate across at least two extractor families. Tune on development data
+and evaluate once on questions set aside before tuning; report uncertainty across
+questions.
+
+\textbf{Success gates.} Natural incremental ingestion must produce more fragmentation
+than batch ingestion, with retrieval loss concentrated on bridge-dependent questions.
+The practical resolver should recover at least half of the improvement achieved by
+known-correct links, create fewer false bridges than hard merging, and average fewer than one LLM
+adjudication call per episode. If natural harm is not observed, the result will be
+reported as a robustness mechanism rather than evidence of a common production fault.
+
+\section{Expected Contribution and Scope}
+
+The project contributes: (1) a controlled characterization of identity failure under
+incremental graph construction; (2) an evaluation focused on questions that require
+an identity connection; and (3) a reversible, confidence-weighted retrieval rule for
+identity links. The immediate deliverable is deliberately narrow: prove the
+natural fault, then test whether soft resolution repairs it safely. Temporal
+consistency, schema drift, provenance policy, and multi-agent concurrency remain
+future work within the larger integrity-mechanism vision.
+
+\begin{multicols}{2}
+\begin{thebibliography}{11}
+\tiny
+\raggedright
+\setlength{\itemsep}{0pt}
+\bibitem{hipporag} Guti\'errez et al. \emph{HippoRAG: Neurobiologically Inspired Long-Term Memory for LLMs}. \href{https://arxiv.org/abs/2405.14831}{arXiv:2405.14831}, 2024.
+\bibitem{hipporag2} Guti\'errez et al. \emph{From RAG to Memory: Non-Parametric Continual Learning for LLMs}. \href{https://arxiv.org/abs/2502.14802}{arXiv:2502.14802}, 2025.
+\bibitem{zep} Rasmussen et al. \emph{Zep: A Temporal Knowledge Graph Architecture for Agent Memory}. \href{https://arxiv.org/abs/2501.13956}{arXiv:2501.13956}, 2025.
+\bibitem{mem0} Chhikara et al. \emph{Mem0: Building Production-Ready AI Agents with Scalable Long-Term Memory}. \href{https://arxiv.org/abs/2504.19413}{arXiv:2504.19413}, 2025.
+\bibitem{linkkg} Meher et al. \emph{LINK-KG: LLM-Driven Coreference-Resolved Knowledge Graphs}. \href{https://arxiv.org/abs/2510.26486}{arXiv:2510.26486}, 2025.
+\bibitem{itext2kg} Lairgi et al. \emph{iText2KG: Incremental Knowledge Graphs Construction Using LLMs}. \href{https://arxiv.org/abs/2409.03284}{arXiv:2409.03284}, 2024.
+\bibitem{kggen} Mo et al. \emph{KGGen: Extracting Knowledge Graphs from Plain Text with Language Models}. \href{https://arxiv.org/abs/2502.09956}{arXiv:2502.09956}, 2025.
+\bibitem{cai} Cai and O'Connor. \emph{Understanding the Effect of KG Extraction Error on Downstream Graph Analyses}. \href{https://arxiv.org/abs/2506.12367}{arXiv:2506.12367}, 2025.
+\bibitem{degrag} Zheng et al. \emph{Less is More: Denoising Knowledge Graphs for Retrieval Augmented Generation}. \href{https://arxiv.org/abs/2510.14271}{arXiv:2510.14271}, 2025.
+\bibitem{graphbench} Xiang et al. \emph{When to Use Graphs in RAG: A Comprehensive Analysis}. \href{https://arxiv.org/abs/2506.05690}{arXiv:2506.05690}, 2025.
+\bibitem{musique} Trivedi et al. \emph{MuSiQue: Multihop Questions via Single-Hop Question Composition}. \href{https://arxiv.org/abs/2108.00573}{arXiv:2108.00573}, 2021.
+\end{thebibliography}
+\end{multicols}
+
+\end{document}

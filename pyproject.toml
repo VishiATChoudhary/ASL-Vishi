@@ -1,7 +1,7 @@
 [project]
-name = "supernode-poc"
+name = "identity-integrity-poc"
 version = "0.1.0"
-description = "Test entropy-weighted PPR retrieval for LLM-built knowledge graphs"
+description = "Test soft identity constraints for LLM-written knowledge graphs"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -10,10 +10,7 @@ dependencies = [
     "networkx>=3.2,<4",
     "numpy>=1.26,<3",
     "pydantic>=2.7,<3",
-    "pyvis>=0.3.2,<1",
-    "requests>=2.31,<3",
     "scipy>=1.12,<2",
-    "sentence-transformers>=3.0,<4",
 ]
 
 [dependency-groups]
@@ -27,7 +24,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/supernode_poc"]
+packages = ["src/identity_integrity"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
